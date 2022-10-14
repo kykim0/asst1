@@ -23,6 +23,14 @@ extern void mandelbrotSerial(
     int output[]);
 
 
+extern void mandelbrotSerial2(
+    float x0, float y0, float x1, float y1,
+    int width, int height,
+    int startRow, int step,
+    int maxIterations,
+    int output[]);
+
+
 //
 // workerThreadStart --
 //
@@ -35,7 +43,28 @@ void workerThreadStart(WorkerArgs * const args) {
     // program that uses two threads, thread 0 could compute the top
     // half of the image and thread 1 could compute the bottom half.
 
-    printf("Hello world from thread %d\n", args->threadId);
+    // double startTime = CycleTimer::currentSeconds();
+    int width = args->width;
+    int height = args->height;
+    int threadId = args->threadId;
+    int numThreads = args->numThreads;
+    // int numRowsPerThread = height / numThreads;
+    // int startRow = threadId * numRowsPerThread;
+    // int numRows = (threadId + 1) == numThreads ? (height - startRow) : numRowsPerThread;
+    // mandelbrotSerial(args->x0, args->y0, args->x1, args->y1,
+    //                  width, height,
+    //                  startRow, numRows,
+    //                  args->maxIterations,
+    //                  args->output);
+    mandelbrotSerial2(args->x0, args->y0, args->x1, args->y1,
+                      width, height,
+                      threadId, numThreads,
+                      args->maxIterations,
+                      args->output);
+    // double endTime = CycleTimer::currentSeconds();
+    // if (true) {
+    //   printf("[mandelbrot thread %d]: [%.3f] ms\n", threadId, (endTime - startTime) * 1000);
+    // }
 }
 
 //
@@ -93,4 +122,3 @@ void mandelbrotThread(
         workers[i].join();
     }
 }
-

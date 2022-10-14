@@ -77,6 +77,7 @@ void initCentroids(double *clusterCentroids, int K, int N) {
   }
 }
 
+// ln -s /afs/ir.stanford.edu/class/cs149/data/data.dat ./data.dat
 int main() {
   srand(SEED);
 

@@ -19,6 +19,8 @@ typedef struct {
   int *clusterAssignments;
   double *currCost;
   int M, N, K;
+  int threadId;
+  int numThreads;
 } WorkerArgs;
 
 
@@ -65,28 +67,53 @@ double dist(double *x, double *y, int nDim) {
 /**
  * Assigns each data point to its "closest" cluster centroid.
  */
-void computeAssignments(WorkerArgs *const args) {
-  double *minDist = new double[args->M];
-  
-  // Initialize arrays
-  for (int m =0; m < args->M; m++) {
-    minDist[m] = 1e30;
+void workerThreadStart(WorkerArgs *const args) {
+  int numPoints = args->end - args->start;
+  // Initialization.
+  double *minDist = new double[numPoints];
+  for (int i = 0; i < numPoints; ++i) {
+    minDist[i] = 1e30;
+    int m = args->start + i;
     args->clusterAssignments[m] = -1;
   }
-
+  
   // Assign datapoints to closest centroids
-  for (int k = args->start; k < args->end; k++) {
-    for (int m = 0; m < args->M; m++) {
+  for (int i = 0; i < numPoints; ++i) {
+    for (int k = 0; k < args->K; k++) {
+      int m = args->start + i;
       double d = dist(&args->data[m * args->N],
                       &args->clusterCentroids[k * args->N], args->N);
-      if (d < minDist[m]) {
-        minDist[m] = d;
+      if (d < minDist[i]) {
+        minDist[i] = d;
         args->clusterAssignments[m] = k;
       }
     }
   }
+}
 
-  free(minDist);
+void computeAssignments(WorkerArgs *const args, int numThreads) {
+  std::thread workers_arr[numThreads];
+  WorkerArgs args_arr[numThreads];
+  int numPointsPerThread = args->M / numThreads;
+  for (int i = 0; i < numThreads; ++i) {
+    args_arr[i].data = args->data;
+    args_arr[i].clusterCentroids = args->clusterCentroids;
+    args_arr[i].clusterAssignments = args->clusterAssignments;
+    args_arr[i].currCost = args->currCost;
+    args_arr[i].M = args->M; args_arr[i].N = args->N; args_arr[i].K = args->K;
+    args_arr[i].threadId = i;
+    args_arr[i].numThreads = numThreads;
+    args_arr[i].start = numPointsPerThread * i;
+    args_arr[i].end = std::min(numPointsPerThread * (i + 1), args->M);
+  }
+
+  for (int i = 1; i < numThreads; ++i) {
+    workers_arr[i] = std::thread(workerThreadStart, &args_arr[i]);
+  }
+  workerThreadStart(&args_arr[0]);
+  for (int i = 1; i < numThreads; ++i) {
+    workers_arr[i].join();
+  }
 }
 
 /**
@@ -145,7 +172,7 @@ void computeCost(WorkerArgs *const args) {
   }
 
   // Update costs
-  for (int k = args->start; k < args->end; k++) {
+  for (int k = 0; k < args->K; k++) {
     args->currCost[k] = accum[k];
   }
 
@@ -173,7 +200,7 @@ void computeCost(WorkerArgs *const args) {
  *     |currCost[i] - prevCost[i]| < epsilon for all i where i = 0, 1, ..., K-1
  */
 void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignments,
-               int M, int N, int K, double epsilon) {
+                  int M, int N, int K, double epsilon) {
 
   // Used to track convergence
   double *prevCost = new double[K];
@@ -197,6 +224,7 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
   }
 
   /* Main K-Means Algorithm Loop */
+  int numThreads = 16;
   int iter = 0;
   while (!stoppingConditionMet(prevCost, currCost, epsilon, K)) {
     // Update cost arrays (for checking convergence criteria)
@@ -204,13 +232,24 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
       prevCost[k] = currCost[k];
     }
 
-    // Setup args struct
-    args.start = 0;
-    args.end = K;
-
-    computeAssignments(&args);
+    // double startTime = CycleTimer::currentSeconds();
+    computeAssignments(&args, numThreads);
+    // double endTime = CycleTimer::currentSeconds();
+    // double assignmentTime = (endTime - startTime) * 1000;
+    // startTime = CycleTimer::currentSeconds();
     computeCentroids(&args);
+    // endTime = CycleTimer::currentSeconds();
+    // double centroidTime = (endTime - startTime) * 1000;
+    // startTime = CycleTimer::currentSeconds();
     computeCost(&args);
+    // endTime = CycleTimer::currentSeconds();
+    // double costTime = (endTime - startTime) * 1000;
+
+    // if (iter % 10 == 0) {
+    //   printf("[Assignment Time]: %.3f ms\n", assignmentTime);
+    //   printf("[Centroid Time]: %.3f ms\n", centroidTime);
+    //   printf("[Cost Time]: %.3f ms\n", costTime);
+    // }
 
     iter++;
   }
